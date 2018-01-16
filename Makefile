@@ -41,6 +41,7 @@ endef
 
 define Package/influxdb/install
 	$(INSTALL_DIR) $(1)/usr/bin
+	$(INSTALL_BIN) ./files/influx $(1)/usr/bin/
 	$(INSTALL_BIN) ./files/influxd $(1)/usr/bin/
 
 	$(INSTALL_DIR) $(1)/etc/init.d
