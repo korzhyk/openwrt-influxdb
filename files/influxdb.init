@@ -1,0 +1,92 @@
+#!/bin/sh /etc/rc.common
+# Copyright (C) 2008-2012 OpenWrt.org
+
+START=99
+USE_PROCD=1
+
+PROG=/usr/bin/influxd
+NAME=influxdb
+
+append_params() {
+  local p; local v; local c="$1"; local s="$2"; shift 2
+  echo "[$s]" | sed -e 's|_|-|g' >> $config_file
+  for p in $*; do
+    config_get v "$c" "${s}_$p"
+    IFS="$LIST_SEP"
+    for v in $v; do
+      [ -n "$v" ] && (
+        p=`echo "$p" | sed -e 's|_|-|g'`
+        case $v in
+          "true"|"false") ;;
+                *[!0-9]*) v="\"$v\"" ;;
+                       *) ;;
+        esac 
+        echo "  $p = $v" >> $config_file
+      )
+    done
+    unset IFS
+  done
+  echo "" >> $config_file
+}
+
+influxdb_instance() {
+  local cfg="$1"
+  local cmdline
+  local user
+  local config_file="/var/etc/${NAME}.conf"
+  local pid_file="/var/run/${NAME}.pid"
+  local data_store
+
+  config_get user "$cfg" 'user'
+  config_get data_store "$cfg" 'data_store' '/tmp'
+
+  touch "$pid_file"
+  chown "$user" "$pid_file"
+
+  cmdline="$PROG run -pidfile $pid_file -config $config_file"
+
+  echo "reporting-disabled = true" > "$config_file"
+
+  append_params "$cfg" "meta" \
+    dir logging_enabled
+
+  append_params "$cfg" "data" \
+    dir wal_dir query_log_enabled \
+    cache_max_memory_size cache_snapshot_memory_size cache_snapshot_write_cold_duration \
+    max_series_per_database max_values_per_tag
+
+  append_params "$cfg" "retention" \
+    enabled
+
+  append_params "$cfg" "shard_precreation" \
+    enabled
+    
+  append_params "$cfg" "subscriber" \
+    enabled    
+
+  append_params "$cfg" "http" \
+    enabled bind_address auth_enabled log_enabled
+
+  append_params "$cfg" "continuous_queries" \
+    enabled
+
+  logger -t "$NAME" "Starting with $cmdline"
+
+  procd_open_instance
+  procd_set_param command $cmdline
+  procd_set_param respawn retry=60
+  procd_set_param user "$user"
+  procd_set_param limits core="0 0"
+  procd_set_param stdout 1
+  procd_set_param stderr 1
+
+  procd_add_jail $NAME log
+  procd_add_jail_mount $config_file
+  procd_add_jail_mount_rw $data_store
+  procd_close_instance
+}
+
+start_service() {
+  config_load "${NAME}"
+  config_foreach influxdb_instance "${NAME}"
+}
